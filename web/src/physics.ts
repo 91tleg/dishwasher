@@ -12,6 +12,11 @@ const FIXED_DT = 1 / 60;
 const SUB_DT = FIXED_DT / SUBSTEPS;
 
 /** Seconds for the door to swing, and for a rack to slide. Slow enough that friction carries the dishes. */
+/** A dish whose lowest point is below this is on the room floor, not in or on the machine. */
+const FLOOR_LEVEL = MACHINE.cabinet.yMin + 6;
+/** How long a dish may lie on the floor before it counts as dropped (2 s of fixed steps). */
+const FLOOR_FRAMES = 120;
+
 const DOOR_SECONDS = 1.4;
 const RACK_SECONDS = 1.8;
 
@@ -52,6 +57,8 @@ interface Entry {
   collider: RAPIER.Collider;
   held: boolean;
   quietFrames: number;
+  /** Fixed steps spent with the lowest point at floor level (below the tub and the open door). */
+  floorFrames: number;
 }
 
 let initialised: Promise<void> | null = null;
@@ -256,7 +263,7 @@ export class RackPhysics {
         .setRestitution(0.05),
       body,
     );
-    this.dishes.set(id, { kind, body, collider, held: false, quietFrames: 0 });
+    this.dishes.set(id, { kind, body, collider, held: false, quietFrames: 0, floorFrames: 0 });
   }
 
   removeDish(id: number) {
@@ -354,6 +361,7 @@ export class RackPhysics {
     e.body.setAngvel({ x: 0, y: 0, z: 0 }, true);
     e.held = false;
     e.quietFrames = 0;
+    e.floorFrames = 0;
   }
 
   /** Advance by `dt` real seconds in fixed steps. */
@@ -371,6 +379,10 @@ export class RackPhysics {
         // Roughly still: under 3 cm/s and half a radian per second.
         const quiet = v.x * v.x + v.y * v.y + v.z * v.z < 9e-4 && w.x * w.x + w.y * w.y + w.z * w.z < 0.25;
         e.quietFrames = quiet ? e.quietFrames + 1 : 0;
+        // Only dishes low in the room need the (costlier) lowest-point check.
+        const y = e.body.translation().y / S;
+        const onFloor = y < 30 && y - this.depthBelowOrigin(e) < FLOOR_LEVEL;
+        e.floorFrames = onFloor ? e.floorFrames + 1 : 0;
       }
     }
   }
@@ -393,6 +405,11 @@ export class RackPhysics {
     if (!e) return null;
     const t = e.body.translation(), r = e.body.rotation();
     return { x: t.x / S, y: t.y / S, z: t.z / S, q: [r.x, r.y, r.z, r.w] as Quat };
+  }
+
+  /** Dishes that have been lying on the room floor for a couple of seconds: dropped, not loaded. */
+  dishesOnFloor(): number[] {
+    return [...this.dishes.entries()].filter(([, e]) => !e.held && e.floorFrames >= FLOOR_FRAMES).map(([id]) => id);
   }
 
   get ids(): number[] {

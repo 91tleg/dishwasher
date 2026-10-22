@@ -697,6 +697,13 @@ function frame(now: number) {
     }
     syncMeshes();
 
+    // A dish that has lain on the room floor for a couple of seconds was dropped, not loaded: put it back.
+    const fallen = phys.dishesOnFloor();
+    if (fallen.length) {
+      for (const id of fallen) removeDish(id);
+      setStatus(`${fallen.length > 1 ? 'Dishes' : 'A dish'} fell on the floor and went back to the catalog.`);
+    }
+
     // A finished wash stays on screen until the load itself is changed: opening the door or sliding a rack
     // moves the dishes, but doesn't un-wash them.
     if ((result || batch) && !resultIsWash && loadMoved()) markChanged();
