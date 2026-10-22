@@ -5,36 +5,72 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>Dishwasher Simulator</title>
   <style>
-    :root { --bg:#12161c; --panel:#1b212a; --line:#2c3541; --text:#e6ebf2; --dim:#8b97a8; --accent:#4f8cff; }
+    :root { --bg:#12161c; --panel:#1b212a; --card:#222a35; --line:#2c3541; --text:#e6ebf2; --dim:#8b97a8; --accent:#4f8cff; --danger:#e0645c; }
     * { box-sizing: border-box; }
     html, body { margin:0; height:100%; background:var(--bg); color:var(--text); font:13px/1.4 system-ui, sans-serif; overscroll-behavior:none; }
-    #app { display:grid; grid-template-columns: 1fr 320px; height:100vh; height:100dvh; }
+    #app { display:grid; grid-template-columns: 1fr 340px; height:100vh; height:100dvh; }
     #view { position:relative; min-width:0; touch-action:none; user-select:none; -webkit-user-select:none; -webkit-touch-callout:none; }
     canvas { display:block; width:100%; height:100%; }
-    #panel { background:var(--panel); border-left:1px solid var(--line); padding:14px; overflow:auto; display:flex; flex-direction:column; -webkit-overflow-scrolling:touch; }
-    #panel section { margin-bottom:6px; }
-    h2 { font-size:12px; letter-spacing:.06em; text-transform:uppercase; color:var(--dim); margin:18px 0 8px; }
-    #panel section:first-child h2 { margin-top:0; }
-    button { background:#242d3a; color:var(--text); border:1px solid var(--line); border-radius:6px; padding:6px 10px; cursor:pointer; font:inherit; }
+    #panel { background:var(--panel); border-left:1px solid var(--line); padding:12px; overflow:auto; -webkit-overflow-scrolling:touch; }
+
+    /* One card per job: machine, wash and result, cycle settings, dishes. */
+    .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:12px; margin-bottom:10px; }
+    .card h2, .card summary { font-size:12px; letter-spacing:.06em; text-transform:uppercase; color:var(--dim); margin:0 0 8px; font-weight:600; }
+    .cardhead { display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; }
+    .cardhead h2 { margin:0; }
+
+    button { background:#2b3441; color:var(--text); border:1px solid var(--line); border-radius:6px; padding:6px 10px; cursor:pointer; font:inherit; }
     button:hover { border-color:var(--accent); }
     button:disabled { opacity:.45; cursor:default; }
-    button.primary { background:var(--accent); border-color:var(--accent); color:#fff; }
-    .row { display:flex; gap:6px; flex-wrap:wrap; margin-bottom:6px; align-items:center; }
-    .stat { display:grid; grid-template-columns: 1fr auto; padding:2px 0; }
-    .stat b { font-variant-numeric: tabular-nums; }
-    .big { font-size:30px; font-weight:600; font-variant-numeric: tabular-nums; }
-    #dishes { display:flex; flex-direction:column; gap:3px; }
-    .dish { display:grid; grid-template-columns: 64px 1fr 40px; gap:8px; align-items:center; padding:4px 6px; border-radius:6px; cursor:pointer; border:1px solid transparent; }
-    .dish.sel { border-color:var(--accent); background:#202a3a; }
-    .bar { height:6px; background:#2a3340; border-radius:3px; overflow:hidden; }
+    button.primary { background:var(--accent); border-color:var(--accent); color:#fff; font-weight:600; }
+    button.wide { width:100%; padding:11px 10px; font-size:15px; }
+    button.link { background:none; border:none; color:var(--dim); padding:2px 4px; text-decoration:underline; }
+    button.link:hover { color:var(--text); }
+    button.danger { color:var(--danger); }
+    select { background:#2b3441; color:var(--text); border:1px solid var(--line); border-radius:6px; padding:5px; font:inherit; }
+
+    .machine { display:grid; grid-template-columns:repeat(3, 1fr); gap:6px; }
+    .machine button { padding:8px 4px; font-size:12px; }
+
+    .speed { display:flex; align-items:center; gap:8px; margin:10px 0 8px; color:var(--dim); }
+    .speed select { flex:1; }
+    .progress { height:6px; background:#2e3745; border-radius:3px; overflow:hidden; }
+    .progress i { display:block; height:100%; width:0; background:var(--accent); }
+    #status { color:var(--dim); min-height:18px; margin-top:6px; }
+    #livebox { color:var(--dim); margin-top:2px; }
+    #livebox b { color:var(--text); font-variant-numeric:tabular-nums; }
+
+    .result { margin-top:12px; padding-top:12px; border-top:1px solid var(--line); }
+    .headline { font-size:38px; font-weight:600; line-height:1.1; font-variant-numeric:tabular-nums; }
+    .headline small { font-size:13px; font-weight:400; color:var(--dim); margin-left:6px; }
+    #resultnote { color:var(--dim); font-size:12px; min-height:16px; margin:2px 0 8px; }
+    .stat { display:flex; justify-content:space-between; padding:2px 0; color:var(--dim); }
+    .stat b { color:var(--text); font-variant-numeric:tabular-nums; }
+    .legend { height:8px; border-radius:4px; background:linear-gradient(90deg,#d6453d,#e8b83a,#3fbf6a); margin:8px 0 2px; }
+    .legend + div { display:flex; justify-content:space-between; color:var(--dim); font-size:11px; }
+
+    details.card summary { cursor:pointer; list-style:none; display:flex; justify-content:space-between; gap:8px; margin:0; }
+    details.card summary::-webkit-details-marker { display:none; }
+    details.card summary span { text-transform:none; letter-spacing:0; font-weight:400; color:var(--text); }
+    details.card[open] summary { margin-bottom:10px; }
+    label.ctl { display:grid; grid-template-columns: 84px 1fr; gap:8px; align-items:center; margin:6px 0; color:var(--dim); }
+
+    #dishes { display:flex; flex-direction:column; gap:2px; }
+    .dish { display:grid; grid-template-columns: 78px 1fr 40px; gap:8px; align-items:center; padding:5px 6px; border-radius:6px; cursor:pointer; border:1px solid transparent; }
+    .dish:hover { background:#27303c; }
+    .dish.sel { border-color:var(--accent); background:#202c40; }
+    .bar { height:6px; background:#2e3745; border-radius:3px; overflow:hidden; }
     .bar i { display:block; height:100%; }
-    label.ctl { display:grid; grid-template-columns: 78px 1fr; gap:8px; align-items:center; margin:4px 0; color:var(--dim); }
-    select { background:#242d3a; color:var(--text); border:1px solid var(--line); border-radius:6px; padding:4px; font:inherit; }
+    .empty { color:var(--dim); padding:4px 2px; }
+
+    #s-sel { margin-top:10px; padding-top:10px; border-top:1px solid var(--line); }
+    .selhead { display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; }
+    .grips { display:flex; flex-wrap:wrap; gap:10px 14px; align-items:flex-end; }
+    .grp small { display:block; color:var(--dim); margin-bottom:3px; }
+    .pair { display:flex; gap:4px; }
+
     #hint { position:absolute; left:12px; bottom:10px; color:#f2c14e; background:rgba(18,22,28,.72); padding:4px 10px; border-radius:6px; pointer-events:none; }
     #hint .touch { display:none; }
-    #status { color:var(--dim); min-height:18px; }
-    .legend { height:8px; border-radius:4px; background:linear-gradient(90deg,#d6453d,#e8b83a,#3fbf6a); margin:6px 0 2px; }
-    .legend + div { display:flex; justify-content:space-between; color:var(--dim); font-size:11px; }
 
     /* Buttons over the 3D view for turning and deleting a dish without a keyboard. */
     #touchbar { display:none; position:absolute; left:8px; right:8px; bottom:8px; gap:6px; overflow-x:auto; padding:6px; background:rgba(18,22,28,.85); border-radius:10px; }
@@ -47,19 +83,15 @@
       #hint .touch { display:inline; }
       #hint { bottom:66px; }
       button, select { min-height:42px; font-size:16px; }
+      .machine button { font-size:13px; }
       .dish { padding:9px 6px; }
     }
 
-    /* Narrow screens: the view on top, the controls scroll underneath. */
+    /* Narrow screens: the view on top, the cards scroll underneath. */
     @media (max-width: 820px) {
       #app { display:flex; flex-direction:column; }
       #view { flex:0 0 56vh; flex-basis:56dvh; min-height:280px; }
-      #panel { flex:1 1 auto; border-left:none; border-top:1px solid var(--line); padding:12px 12px calc(12px + env(safe-area-inset-bottom)); }
-      /* Most-used controls first. */
-      #s-machine { order:1; } #s-actions { order:2; } #s-result { order:3; }
-      #s-sel { order:4; } #s-load { order:5; } #s-cycle { order:6; }
-      #panel section:first-child h2 { margin-top:18px; }
-      #s-machine h2 { margin-top:0 !important; }
+      #panel { flex:1 1 auto; border-left:none; border-top:1px solid var(--line); padding:10px 10px calc(10px + env(safe-area-inset-bottom)); }
     }
   </style>
 </head>
@@ -79,58 +111,48 @@
         <button data-nudge="delete">delete</button>
       </div>
     </div>
+
     <div id="panel">
-      <section id="s-result">
-        <h2>Result</h2>
-        <div class="big" id="score">–</div>
-        <div id="resultnote" style="color:var(--dim);font-size:12px;min-height:16px;margin-bottom:4px"></div>
-        <div class="stat"><span>Soil removed (avg)</span><b id="mean">–</b></div>
-        <div class="stat"><span>Dirtiest dishes</span><b id="worst">–</b></div>
-        <div class="legend"></div><div><span>dirty</span><span>clean</span></div>
-      </section>
-
-      <section id="s-actions">
-        <h2>Actions</h2>
-        <div class="row">
-          <button id="clear">Clear all dishes</button>
-        </div>
-        <div class="row">
-          <button id="wash">▶ Start wash</button>
-          <select id="speed"><option value="1">1× (15 min)</option><option value="10">10×</option><option value="30" selected>30×</option><option value="60">60×</option><option value="120">120×</option></select>
-        </div>
-        <div class="bar" style="margin:4px 0 8px"><i id="washbar" style="width:0;background:var(--accent)"></i></div>
-        <div id="status"></div>
-      </section>
-
-      <section id="s-cycle">
-        <h2>Cycle</h2>
-        <label class="ctl"><span>Program</span>
-          <select id="program"><option value="heavy">Heavy</option><option value="auto">Auto</option><option value="normal" selected>Normal</option><option value="speed60">Speed 60</option></select></label>
-        <label class="ctl"><span>Water temp</span>
-          <select id="temp"><option value="40">40 °C (eco)</option><option value="50">50 °C</option><option value="55" selected>55 °C</option><option value="65">65 °C (intensive)</option></select></label>
-        <label class="ctl"><span>Detergent</span>
-          <select id="det"><option value="0">none</option><option value="0.5">½ dose</option><option value="1" selected>1 dose</option><option value="1.5">1½ doses</option></select></label>
-        <div class="stat"><span>Water temp now</span><b id="gt">–</b></div>
-        <div class="stat"><span>Detergent now</span><b id="gd">–</b></div>
-      </section>
-
-      <section id="s-machine">
+      <section class="card" id="s-machine">
         <h2>Machine</h2>
-        <div class="row">
+        <div class="machine">
           <button id="door-btn">Open door</button>
           <button id="lower-btn">Pull lower rack out</button>
           <button id="upper-btn">Pull upper rack out</button>
         </div>
       </section>
 
-      <section id="s-load">
-        <h2>Load</h2>
-        <div id="dishes"></div>
+      <section class="card" id="s-wash">
+        <button id="wash" class="primary wide">▶ Start wash</button>
+        <div class="speed"><label for="speed">Speed</label>
+          <select id="speed"><option value="1">Real time</option><option value="10">10×</option><option value="30" selected>30×</option><option value="60">60×</option><option value="120">120×</option></select>
+        </div>
+        <div class="progress"><i id="washbar"></i></div>
+        <div id="status"></div>
+        <div id="livebox" hidden>Water <b id="gt">–</b> · Detergent <b id="gd">–</b></div>
+
+        <div class="result">
+          <div class="headline"><span id="mean">–</span><small>clean</small></div>
+          <div id="resultnote"></div>
+          <div class="stat"><span>Dirtiest dish</span><b id="worst">–</b></div>
+          <div class="legend"></div><div><span>dirty</span><span>clean</span></div>
+        </div>
       </section>
 
-      <section id="s-sel">
-        <h2>Selected</h2>
-        <div id="sel"><span style="color:var(--dim)">Click a dish.</span></div>
+      <details class="card" id="s-cycle">
+        <summary>Cycle <span id="cyclesummary">Normal · 55 °C · 1 dose</span></summary>
+        <label class="ctl"><span>Program</span>
+          <select id="program"><option value="heavy">Heavy</option><option value="auto">Auto</option><option value="normal" selected>Normal</option><option value="speed60">Speed 60</option></select></label>
+        <label class="ctl"><span>Water temp</span>
+          <select id="temp"><option value="40">40 °C (eco)</option><option value="50">50 °C</option><option value="55" selected>55 °C</option><option value="65">65 °C (intensive)</option></select></label>
+        <label class="ctl"><span>Detergent</span>
+          <select id="det"><option value="0">none</option><option value="0.5">½ dose</option><option value="1" selected>1 dose</option><option value="1.5">1½ doses</option></select></label>
+      </details>
+
+      <section class="card" id="s-load">
+        <div class="cardhead"><h2>Dishes</h2><button id="clear" class="link" hidden>Clear all</button></div>
+        <div id="dishes"></div>
+        <div id="s-sel" hidden><div id="sel"></div></div>
       </section>
     </div>
   </div>

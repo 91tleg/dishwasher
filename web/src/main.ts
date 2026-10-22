@@ -253,20 +253,35 @@ function runEval() {
 const clock = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
 const pct = (x: number) => `${(x * 100).toFixed(0)}%`;
 
+const KIND_LABEL: Record<string, string> = { plate: 'Plate', bowl: 'Bowl', mug: 'Mug', fork: 'Fork', spoon: 'Spoon', knife: 'Knife' };
+
 function renderStats() {
   const live = resultIsWash;
-  const score = $('score');
-  score.textContent = result ? result.score.toFixed(3) : '–';
-  score.style.color = result && !live ? 'var(--dim)' : '';
-  $('resultnote').textContent = !result ? '' : !live ? 'Predicted after a full wash. Everything is dirty until you run it.' : wash ? 'Cleaned so far.' : 'After the wash.';
-  $('mean').textContent = result ? pct(result.mean) : '–';
+  const mean = $('mean');
+  mean.textContent = result ? pct(result.mean) : '–';
+  mean.style.color = result && !live ? 'var(--dim)' : '';
+  $('resultnote').textContent = !result
+    ? ''
+    : !live
+      ? 'Predicted for a full wash. Dishes stay dirty until you run it.'
+      : wash
+        ? 'Cleaned so far.'
+        : 'Cleaned.';
   const worst = result ? [...result.perDish].map((p) => p.mean).sort((a, b) => a - b)[0] : 0;
   $('worst').textContent = result ? pct(worst) : '–';
 
   const list = $('dishes');
   list.innerHTML = '';
-  if (!dishes.length) list.innerHTML = '<span style="color:var(--dim)">Nothing loaded yet.</span>';
+  $('clear').hidden = !dishes.length;
+  if (!dishes.length) list.innerHTML = '<div class="empty">Nothing loaded yet. Click a dish on the wall to take it.</div>';
+  // "Plate 2" when there are several of a kind.
+  const total = new Map<string, number>();
+  for (const d of dishes) total.set(d.kind, (total.get(d.kind) ?? 0) + 1);
+  const seen = new Map<string, number>();
   for (const d of dishes) {
+    const n = (seen.get(d.kind) ?? 0) + 1;
+    seen.set(d.kind, n);
+    const name = KIND_LABEL[d.kind] + (total.get(d.kind)! > 1 ? ` ${n}` : '');
     const i = result ? scoreIndex(d.id) : -1;
     const m = i >= 0 ? result!.perDish[i].mean : 0;
     const row = document.createElement('div');
@@ -274,7 +289,7 @@ function renderStats() {
     const c = new THREE.Color();
     heat(m, c);
     const bar = live ? `#${c.getHexString(THREE.SRGBColorSpace)}` : '#4b5666';
-    row.innerHTML = `<span>${d.kind}</span>
+    row.innerHTML = `<span>${name}</span>
       <div class="bar"><i style="width:${m * 100}%;background:${bar}"></i></div>
       <span style="text-align:right;${live ? '' : 'color:var(--dim)'}">${i >= 0 ? (live ? '' : '~') + pct(m) : insideTub(d) ? '' : 'out'}</span>`;
     row.onclick = () => select(d.id);
@@ -325,22 +340,25 @@ function removeDish(id: number) {
 }
 
 function renderSelected() {
+  const card = $('s-sel');
   const box = $('sel');
   const d = dishes.find((x) => x.id === selected);
+  card.hidden = !d;
   if (!d) {
-    box.innerHTML = '<span style="color:var(--dim)">Click a dish.</span>';
+    box.innerHTML = '';
     return;
   }
-  const i = scoreIndex(d.id);
   const btn = (k: string, label: string) => `<button data-rot="${k}">${label}</button>`;
+  const grp = (name: string, minus: string, plus: string, label: [string, string]) =>
+    `<div class="grp"><small>${name}</small><div class="pair">${btn(minus, label[0])}${btn(plus, label[1])}</div></div>`;
   box.innerHTML = `
-    <div class="row">
-      <span style="color:var(--dim)">${d.kind}</span>
-      <button data-act="del">Remove</button>
-    </div>
-    <div class="row">tilt ${btn('tilt-', '−')}${btn('tilt+', '+')} yaw ${btn('yaw-', '−')}${btn('yaw+', '+')} roll ${btn('roll-', '−')}${btn('roll+', '+')} ${btn('flip', 'flip')}</div>
-    ${batch?.forces && i >= 0 ? `<div class="stat"><span>Peak spray force</span><b>${batch.forces[i].peak.toFixed(2)} N</b></div>` : ''}
-`;
+    <div class="selhead"><b>${KIND_LABEL[d.kind]}</b><button class="link danger" data-act="del">Remove</button></div>
+    <div class="grips">
+      ${grp('Turn', 'yaw-', 'yaw+', ['◀', '▶'])}
+      ${grp('Tilt', 'tilt-', 'tilt+', ['−', '+'])}
+      ${grp('Roll', 'roll-', 'roll+', ['−', '+'])}
+      <div class="grp"><small>&nbsp;</small>${btn('flip', 'Flip')}</div>
+    </div>`;
   box.querySelectorAll<HTMLButtonElement>('[data-rot]').forEach((b) => (b.onclick = () => rotateSelected(rotations[b.dataset.rot!])));
   box.querySelector<HTMLButtonElement>('[data-act=del]')!.onclick = () => removeDish(d.id);
 }
@@ -616,12 +634,19 @@ $('program').addEventListener('change', () => {
   const p = PROGRAMS[($('program') as HTMLSelectElement).value as ProgramId];
   ($('temp') as HTMLSelectElement).value = String(p.tempC);
 });
+function updateCycleSummary() {
+  const c = readCycle();
+  const dose = ($('det') as HTMLSelectElement).selectedOptions[0].textContent;
+  $('cyclesummary').textContent = `${PROGRAMS[c.program].label} · ${c.tempC} °C · ${dose}`;
+}
 for (const id of ['program', 'temp', 'det']) {
   $(id).addEventListener('change', () => {
     setCycle(readCycle());
+    updateCycleSummary();
     markChanged();
   });
 }
+updateCycleSummary();
 
 // ---- live wash ----
 function stopWash() {
@@ -632,6 +657,7 @@ function stopWash() {
   paintFilm(null);
   refreshWashButton();
   ($('washbar') as HTMLElement).style.width = '0';
+  $('livebox').hidden = true;
 }
 
 function beginWash() {
@@ -651,6 +677,7 @@ function beginWash() {
   paint();
   renderStats();
   refreshWashButton();
+  $('livebox').hidden = false;
 }
 
 $('wash').onclick = () => {
@@ -743,7 +770,7 @@ function frame(now: number) {
     }
     if (wash.done) {
       stopWash();
-      setStatus(`wash complete — ${pct(result!.mean)} of soil removed (score ${result!.score.toFixed(3)})`);
+      setStatus(`Wash complete: ${pct(result!.mean)} of the soil removed.`);
     }
   }
   controls.update();
