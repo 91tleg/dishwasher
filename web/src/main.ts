@@ -46,10 +46,18 @@ function resize() {
   const w = view.clientWidth, h = view.clientHeight;
   renderer.setSize(w, h);
   camera.aspect = w / h;
+  // On a tall (phone) screen widen the vertical field of view, so the machine and the wall still fit across.
+  const base = 40, wide = 1.4;
+  const half = THREE.MathUtils.degToRad(base / 2);
+  camera.fov = camera.aspect >= wide ? base : Math.min(80, THREE.MathUtils.radToDeg(2 * Math.atan((Math.tan(half) * wide) / camera.aspect)));
   camera.updateProjectionMatrix();
 }
 addEventListener('resize', resize);
+// The view also changes size when the layout stacks or the phone rotates.
+new ResizeObserver(resize).observe(view);
 resize();
+// No long-press menu on the 3D view.
+renderer.domElement.addEventListener('contextmenu', (e) => e.preventDefault());
 
 // ---- state ----
 let dishes: DishState[] = [];
@@ -397,9 +405,12 @@ function updateGuide() {
 /** Where a dish can be carried: the room around the machine. */
 const REACH = { minX: -105, maxX: 105, minZ: -60, maxZ: 125 };
 
-function pointer(e: PointerEvent) {
+/** A carried dish rides this far above a finger, in pixels, so the finger doesn't hide it. */
+const TOUCH_LIFT = 64;
+
+function pointer(e: PointerEvent, lift = 0) {
   const r = renderer.domElement.getBoundingClientRect();
-  ndc.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
+  ndc.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - lift - r.top) / r.height) * 2 + 1);
   ray.setFromCamera(ndc, camera);
 }
 
@@ -409,7 +420,7 @@ function updateHeld(e?: PointerEvent) {
   const d = dishes.find((x) => x.id === held!.id)!;
   let { x, z } = d.pose;
   if (e) {
-    pointer(e);
+    pointer(e, e.pointerType === 'touch' ? TOUCH_LIFT : 0);
     const p = new THREE.Vector3();
     if (ray.ray.intersectPlane(held.plane, p)) {
       x = Math.min(REACH.maxX, Math.max(REACH.minX, p.x + held.dx));
@@ -506,22 +517,45 @@ renderer.domElement.addEventListener(
   { passive: false },
 );
 
-const KEYS: Record<string, string> = { q: 'yaw-', e: 'yaw+', w: 'tilt-', s: 'tilt+', a: 'roll-', d: 'roll+' };
-addEventListener('keydown', (e) => {
-  if (!held || e.repeat) return;
-  // X throws the carried dish away.
-  if (e.key.toLowerCase() === 'x') {
+/** Throw away the carried dish, or the selected one if nothing is being carried. */
+function deleteCarriedOrSelected() {
+  if (held) {
     const id = held.id;
     held = null;
     guide.visible = false;
     controls.enabled = true;
     removeDish(id);
-    return;
+  } else if (selected !== null) {
+    removeDish(selected);
   }
+}
+
+/**
+ * Turn, raise or lower. Acts on the carried dish when there is one (a second finger can tap these while the
+ * first carries), otherwise on the selected dish, which is turned in place and dropped again.
+ */
+function nudge(k: string) {
+  if (k === 'delete') return deleteCarriedOrSelected();
+  if (held) {
+    if (k === 'up' || k === 'down') {
+      held.y = Math.min(HOLD_MAX_Y, Math.max(HOLD_MIN_Y, held.y + (k === 'up' ? 3 : -3)));
+      held.plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -held.y);
+    } else if (rotations[k]) {
+      held.q = mulQuat(rotations[k], held.q);
+    }
+    updateHeld();
+  } else if (selected !== null && rotations[k]) {
+    rotateSelected(rotations[k]);
+  }
+}
+document.querySelectorAll<HTMLButtonElement>('[data-nudge]').forEach((b) => (b.onclick = () => nudge(b.dataset.nudge!)));
+
+const KEYS: Record<string, string> = { q: 'yaw-', e: 'yaw+', w: 'tilt-', s: 'tilt+', a: 'roll-', d: 'roll+' };
+addEventListener('keydown', (e) => {
+  if (!held || e.repeat) return;
+  if (e.key.toLowerCase() === 'x') return deleteCarriedOrSelected();
   const k = KEYS[e.key.toLowerCase()];
-  if (!k) return;
-  held.q = mulQuat(rotations[k], held.q);
-  updateHeld();
+  if (k) nudge(k);
 });
 
 $('clear').onclick = () => {

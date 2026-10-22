@@ -2,20 +2,22 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>Dishwasher Simulator</title>
   <style>
     :root { --bg:#12161c; --panel:#1b212a; --line:#2c3541; --text:#e6ebf2; --dim:#8b97a8; --accent:#4f8cff; }
     * { box-sizing: border-box; }
-    html, body { margin:0; height:100%; background:var(--bg); color:var(--text); font:13px/1.4 system-ui, sans-serif; }
-    #app { display:grid; grid-template-columns: 1fr 320px; height:100%; }
-    #view { position:relative; min-width:0; }
+    html, body { margin:0; height:100%; background:var(--bg); color:var(--text); font:13px/1.4 system-ui, sans-serif; overscroll-behavior:none; }
+    #app { display:grid; grid-template-columns: 1fr 320px; height:100vh; height:100dvh; }
+    #view { position:relative; min-width:0; touch-action:none; user-select:none; -webkit-user-select:none; -webkit-touch-callout:none; }
     canvas { display:block; width:100%; height:100%; }
-    #panel { background:var(--panel); border-left:1px solid var(--line); padding:14px; overflow:auto; }
+    #panel { background:var(--panel); border-left:1px solid var(--line); padding:14px; overflow:auto; display:flex; flex-direction:column; -webkit-overflow-scrolling:touch; }
+    #panel section { margin-bottom:6px; }
     h2 { font-size:12px; letter-spacing:.06em; text-transform:uppercase; color:var(--dim); margin:18px 0 8px; }
-    h2:first-child { margin-top:0; }
+    #panel section:first-child h2 { margin-top:0; }
     button { background:#242d3a; color:var(--text); border:1px solid var(--line); border-radius:6px; padding:6px 10px; cursor:pointer; font:inherit; }
     button:hover { border-color:var(--accent); }
+    button:disabled { opacity:.45; cursor:default; }
     button.primary { background:var(--accent); border-color:var(--accent); color:#fff; }
     .row { display:flex; gap:6px; flex-wrap:wrap; margin-bottom:6px; align-items:center; }
     .stat { display:grid; grid-template-columns: 1fr auto; padding:2px 0; }
@@ -26,60 +28,110 @@
     .dish.sel { border-color:var(--accent); background:#202a3a; }
     .bar { height:6px; background:#2a3340; border-radius:3px; overflow:hidden; }
     .bar i { display:block; height:100%; }
-    label.ctl { display:grid; grid-template-columns: 52px 1fr 40px; gap:8px; align-items:center; margin:4px 0; color:var(--dim); }
-    label.ctl output { text-align:right; color:var(--text); font-variant-numeric: tabular-nums; }
-    input[type=range] { width:100%; }
+    label.ctl { display:grid; grid-template-columns: 78px 1fr; gap:8px; align-items:center; margin:4px 0; color:var(--dim); }
     select { background:#242d3a; color:var(--text); border:1px solid var(--line); border-radius:6px; padding:4px; font:inherit; }
     #hint { position:absolute; left:12px; bottom:10px; color:#f2c14e; background:rgba(18,22,28,.72); padding:4px 10px; border-radius:6px; pointer-events:none; }
+    #hint .touch { display:none; }
     #status { color:var(--dim); min-height:18px; }
     .legend { height:8px; border-radius:4px; background:linear-gradient(90deg,#d6453d,#e8b83a,#3fbf6a); margin:6px 0 2px; }
     .legend + div { display:flex; justify-content:space-between; color:var(--dim); font-size:11px; }
+
+    /* Buttons over the 3D view for turning and deleting a dish without a keyboard. */
+    #touchbar { display:none; position:absolute; left:8px; right:8px; bottom:8px; gap:6px; overflow-x:auto; padding:6px; background:rgba(18,22,28,.85); border-radius:10px; }
+    #touchbar button { flex:0 0 auto; min-width:44px; }
+
+    /* Touch screens: bigger targets, no keyboard hint, and the on-screen buttons. */
+    @media (pointer: coarse) {
+      #touchbar { display:flex; }
+      #hint .kbd { display:none; }
+      #hint .touch { display:inline; }
+      #hint { bottom:66px; }
+      button, select { min-height:42px; font-size:16px; }
+      .dish { padding:9px 6px; }
+    }
+
+    /* Narrow screens: the view on top, the controls scroll underneath. */
+    @media (max-width: 820px) {
+      #app { display:flex; flex-direction:column; }
+      #view { flex:0 0 56vh; flex-basis:56dvh; min-height:280px; }
+      #panel { flex:1 1 auto; border-left:none; border-top:1px solid var(--line); padding:12px 12px calc(12px + env(safe-area-inset-bottom)); }
+      /* Most-used controls first. */
+      #s-machine { order:1; } #s-actions { order:2; } #s-result { order:3; }
+      #s-sel { order:4; } #s-load { order:5; } #s-cycle { order:6; }
+      #panel section:first-child h2 { margin-top:18px; }
+      #s-machine h2 { margin-top:0 !important; }
+    }
   </style>
 </head>
 <body>
   <div id="app">
-    <div id="view"><div id="hint">while carrying: Q/E turn · W/S tilt · A/D roll · X delete</div></div>
+    <div id="view">
+      <div id="hint">
+        <span class="kbd">while carrying: Q/E turn · W/S tilt · A/D roll · X delete</span>
+        <span class="touch">drag a dish to carry it · the buttons turn it</span>
+      </div>
+      <div id="touchbar">
+        <button data-nudge="yaw-">turn ◀</button><button data-nudge="yaw+">turn ▶</button>
+        <button data-nudge="tilt-">tilt −</button><button data-nudge="tilt+">tilt +</button>
+        <button data-nudge="roll-">roll −</button><button data-nudge="roll+">roll +</button>
+        <button data-nudge="flip">flip</button>
+        <button data-nudge="up">▲</button><button data-nudge="down">▼</button>
+        <button data-nudge="delete">delete</button>
+      </div>
+    </div>
     <div id="panel">
-      <h2>Result</h2>
-      <div class="big" id="score">–</div>
-      <div id="resultnote" style="color:var(--dim);font-size:12px;min-height:16px;margin-bottom:4px"></div>
-      <div class="stat"><span>Soil removed (avg)</span><b id="mean">–</b></div>
-      <div class="stat"><span>Dirtiest dishes</span><b id="worst">–</b></div>
-      <div class="legend"></div><div><span>dirty</span><span>clean</span></div>
+      <section id="s-result">
+        <h2>Result</h2>
+        <div class="big" id="score">–</div>
+        <div id="resultnote" style="color:var(--dim);font-size:12px;min-height:16px;margin-bottom:4px"></div>
+        <div class="stat"><span>Soil removed (avg)</span><b id="mean">–</b></div>
+        <div class="stat"><span>Dirtiest dishes</span><b id="worst">–</b></div>
+        <div class="legend"></div><div><span>dirty</span><span>clean</span></div>
+      </section>
 
-      <h2>Actions</h2>
-      <div class="row">
-        <button id="clear">Clear all dishes</button>
-      </div>
-      <div class="row">
-        <button id="wash">▶ Start wash</button>
-        <select id="speed"><option value="1">1× (15 min)</option><option value="10">10×</option><option value="30" selected>30×</option><option value="60">60×</option><option value="120">120×</option></select>
-      </div>
-      <div class="bar" style="margin:4px 0 8px"><i id="washbar" style="width:0;background:var(--accent)"></i></div>
-      <div id="status"></div>
+      <section id="s-actions">
+        <h2>Actions</h2>
+        <div class="row">
+          <button id="clear">Clear all dishes</button>
+        </div>
+        <div class="row">
+          <button id="wash">▶ Start wash</button>
+          <select id="speed"><option value="1">1× (15 min)</option><option value="10">10×</option><option value="30" selected>30×</option><option value="60">60×</option><option value="120">120×</option></select>
+        </div>
+        <div class="bar" style="margin:4px 0 8px"><i id="washbar" style="width:0;background:var(--accent)"></i></div>
+        <div id="status"></div>
+      </section>
 
-      <h2>Cycle</h2>
-      <label class="ctl" style="grid-template-columns:78px 1fr"><span>Program</span>
-        <select id="program"><option value="heavy">Heavy</option><option value="auto">Auto</option><option value="normal" selected>Normal</option><option value="speed60">Speed 60</option></select></label>
-      <label class="ctl" style="grid-template-columns:78px 1fr"><span>Water temp</span>
-        <select id="temp"><option value="40">40 °C (eco)</option><option value="50">50 °C</option><option value="55" selected>55 °C</option><option value="65">65 °C (intensive)</option></select></label>
-      <label class="ctl" style="grid-template-columns:78px 1fr"><span>Detergent</span>
-        <select id="det"><option value="0">none</option><option value="0.5">½ dose</option><option value="1" selected>1 dose</option><option value="1.5">1½ doses</option></select></label>
-      <div class="stat"><span>Water temp now</span><b id="gt">–</b></div>
-      <div class="stat"><span>Detergent now</span><b id="gd">–</b></div>
+      <section id="s-cycle">
+        <h2>Cycle</h2>
+        <label class="ctl"><span>Program</span>
+          <select id="program"><option value="heavy">Heavy</option><option value="auto">Auto</option><option value="normal" selected>Normal</option><option value="speed60">Speed 60</option></select></label>
+        <label class="ctl"><span>Water temp</span>
+          <select id="temp"><option value="40">40 °C (eco)</option><option value="50">50 °C</option><option value="55" selected>55 °C</option><option value="65">65 °C (intensive)</option></select></label>
+        <label class="ctl"><span>Detergent</span>
+          <select id="det"><option value="0">none</option><option value="0.5">½ dose</option><option value="1" selected>1 dose</option><option value="1.5">1½ doses</option></select></label>
+        <div class="stat"><span>Water temp now</span><b id="gt">–</b></div>
+        <div class="stat"><span>Detergent now</span><b id="gd">–</b></div>
+      </section>
 
-      <h2>Machine</h2>
-      <div class="row">
-        <button id="door-btn">Open door</button>
-        <button id="lower-btn">Pull lower rack out</button>
-        <button id="upper-btn">Pull upper rack out</button>
-      </div>
+      <section id="s-machine">
+        <h2>Machine</h2>
+        <div class="row">
+          <button id="door-btn">Open door</button>
+          <button id="lower-btn">Pull lower rack out</button>
+          <button id="upper-btn">Pull upper rack out</button>
+        </div>
+      </section>
 
-      <h2>Load</h2>
-      <div id="dishes"></div>
+      <section id="s-load">
+        <h2>Load</h2>
+        <div id="dishes"></div>
+      </section>
 
-      <h2>Selected</h2>
-      <div id="sel"><span style="color:var(--dim)">Click a dish.</span></div>
+      <section id="s-sel">
+        <h2>Selected</h2>
+        <div id="sel"><span style="color:var(--dim)">Click a dish.</span></div>
+      </section>
     </div>
   </div>
   <script type="module" src="/src/main.ts"></script>
