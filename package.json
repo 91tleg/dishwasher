@@ -1,0 +1,23 @@
+{
+  "name": "dishwasher-sim",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build:wasm": "bash scripts/build-wasm.sh",
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "drop": "tsx scripts/drop.ts",
+    "wash": "tsx scripts/wash.ts"
+  },
+  "dependencies": {
+    "@dimforge/rapier3d-compat": "^0.21.0",
+    "three": "^0.186.1"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.5",
+    "@types/three": "^0.186.0",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.5"
+  }
+}

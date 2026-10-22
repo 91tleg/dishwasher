@@ -1,0 +1,4 @@
+node_modules
+target
+dist
+web/public/sim_core.wasm
