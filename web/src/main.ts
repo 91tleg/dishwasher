@@ -46,8 +46,9 @@ function resize() {
   const w = view.clientWidth, h = view.clientHeight;
   renderer.setSize(w, h);
   camera.aspect = w / h;
-  // On a tall (phone) screen widen the vertical field of view, so the machine and the wall still fit across.
-  const base = 40, wide = 1.4;
+  // On a tall (phone) screen widen the vertical field of view a little so the machine and the wall still fit
+  // across. Not all the way to the desktop framing: that leaves everything tiny on a small screen.
+  const base = 40, wide = 1.0;
   const half = THREE.MathUtils.degToRad(base / 2);
   camera.fov = camera.aspect >= wide ? base : Math.min(80, THREE.MathUtils.radToDeg(2 * Math.atan((Math.tan(half) * wide) / camera.aspect)));
   camera.updateProjectionMatrix();
@@ -259,7 +260,7 @@ function renderStats() {
   const live = resultIsWash;
   const mean = $('mean');
   mean.textContent = result ? pct(result.mean) : '–';
-  mean.style.color = result && !live ? 'var(--dim)' : '';
+  mean.style.color = !result || !live ? 'var(--dim)' : '';
   $('resultnote').textContent = !result
     ? ''
     : !live
