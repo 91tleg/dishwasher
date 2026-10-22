@@ -1,0 +1,40 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+
+      # Unit tests for the spray and cleaning model.
+      - name: Rust tests
+        run: cargo test -p sim-core
+
+      - run: npm ci
+
+      # The app loads this module at startup, so build it before the web build.
+      - name: Build wasm
+        run: npm run build:wasm
+
+      # Type-checks the app and the scripts, then bundles it.
+      - name: Type-check and build
+        run: npm run build
