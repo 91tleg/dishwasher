@@ -279,7 +279,9 @@ export class Wash {
       put(bufs[6], nozzles.center), put(bufs[7], nozzles.localPos), put(bufs[8], nozzles.localDir), put(bufs[9], nozzles.flow),
       put(bufs[10], w.area),
     ];
-    new Float32Array(wasm.memory.buffer, this.g.get(w.n * 4), w.n).fill(0);
+    // Allocate first: growing wasm memory detaches any earlier view of it.
+    const gPtr = this.g.get(w.n * 4);
+    new Float32Array(wasm.memory.buffer, gPtr, w.n).fill(0);
   }
 
   /** Length of the main wash, simulated seconds. */
