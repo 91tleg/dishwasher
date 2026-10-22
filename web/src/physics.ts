@@ -368,7 +368,8 @@ export class RackPhysics {
       for (const e of this.dishes.values()) {
         if (e.held) continue;
         const v = e.body.linvel(), w = e.body.angvel();
-        const quiet = v.x * v.x + v.y * v.y + v.z * v.z < 1e-4 && w.x * w.x + w.y * w.y + w.z * w.z < 4e-2;
+        // Roughly still: under 3 cm/s and half a radian per second.
+        const quiet = v.x * v.x + v.y * v.y + v.z * v.z < 9e-4 && w.x * w.x + w.y * w.y + w.z * w.z < 0.25;
         e.quietFrames = quiet ? e.quietFrames + 1 : 0;
       }
     }

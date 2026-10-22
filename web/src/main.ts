@@ -79,6 +79,35 @@ let phys: RackPhysics;
 let needsEval = false;
 /** Start a wash as soon as the machine has closed itself. */
 let washQueued = false;
+/** How long, in seconds, we have been waiting for the dishes to come to rest. */
+let settleWait = 0;
+/** Wait at most this long for a jittering dish (say, one pinched by the door); then go ahead anyway. */
+const SETTLE_TIMEOUT = 2.5;
+/** Where each dish was when the load was last scored; moving past this invalidates the prediction. */
+let scoredPoses = new Map<number, Pose>();
+
+function refreshWashButton() {
+  $('wash').textContent = wash ? '■ Stop wash' : washQueued ? '… closing (click to cancel)' : '▶ Start wash';
+}
+function setWashQueued(v: boolean) {
+  washQueued = v;
+  refreshWashButton();
+}
+
+const rememberLoad = () => (scoredPoses = new Map(dishes.map((d) => [d.id, d.pose])));
+/** Has any dish moved noticeably (0.4 cm, 2 degrees) since the load was scored? Tiny jitter doesn't count. */
+function loadMoved(): boolean {
+  if (scoredPoses.size !== dishes.length) return true;
+  for (const d of dishes) {
+    const a = scoredPoses.get(d.id);
+    if (!a) return true;
+    const b = d.pose;
+    if (Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z) > 0.4) return true;
+    const dot = Math.abs(a.q[0] * b.q[0] + a.q[1] * b.q[1] + a.q[2] * b.q[2] + a.q[3] * b.q[3]);
+    if (dot < 0.9998) return true;
+  }
+  return false;
+}
 const meshes = new Map<number, THREE.Mesh>();
 /** Translucent water layer per dish, driven by the film model. */
 const films = new Map<number, THREE.Mesh>();
@@ -215,6 +244,7 @@ function runEval() {
   result = evaluateLayout(scored);
   resultIsWash = false;
   batch = result;
+  rememberLoad();
   setStatus(`scored ${scored.length} dishes (${result.clean.length.toLocaleString()} surface cells) in ${(performance.now() - t).toFixed(0)} ms`);
   paint();
   renderStats();
@@ -318,7 +348,7 @@ function renderSelected() {
 // ---- machine controls ----
 function toggleDoor() {
   stopWash();
-  washQueued = false;
+  setWashQueued(false);
   if (phys.door.target === 1) phys.closeAll();
   else phys.openDoor();
   needsEval = true;
@@ -327,7 +357,7 @@ function toggleDoor() {
 
 function toggleRack(which: 'lower' | 'upper') {
   stopWash();
-  washQueued = false;
+  setWashQueued(false);
   const out = phys.setRackOut(which, phys[which].target === 0);
   if (!out && phys[which].target === 0) setStatus('Open the door first.');
   needsEval = true;
@@ -560,7 +590,7 @@ addEventListener('keydown', (e) => {
 
 $('clear').onclick = () => {
   stopWash();
-  washQueued = false;
+  setWashQueued(false);
   phys.clear();
   dishes = [];
   selected = null;
@@ -600,18 +630,19 @@ function stopWash() {
   wash = null;
   fx.stop();
   paintFilm(null);
-  $('wash').textContent = '▶ Start wash';
+  refreshWashButton();
   ($('washbar') as HTMLElement).style.width = '0';
 }
 
 function beginWash() {
-  washQueued = false;
+  setWashQueued(false);
   scored = dishes.filter(insideTub);
   if (!scored.length) {
     setStatus('Load some dishes into the racks first.');
     return;
   }
   needsEval = false;
+  rememberLoad();
   wash = new Wash(scored);
   fx.setObstacles(wash.cellPos, wash.cellNrm);
   fx.start();
@@ -619,7 +650,7 @@ function beginWash() {
   resultIsWash = true;
   paint();
   renderStats();
-  $('wash').textContent = '■ Stop wash';
+  refreshWashButton();
 }
 
 $('wash').onclick = () => {
@@ -634,8 +665,7 @@ $('wash').onclick = () => {
     return;
   }
   if (washQueued) {
-    washQueued = false;
-    $('wash').textContent = '▶ Start wash';
+    setWashQueued(false);
     return;
   }
   if (!dishes.length) {
@@ -643,11 +673,10 @@ $('wash').onclick = () => {
     return;
   }
   // Seal the machine first: racks in, door shut.
-  washQueued = true;
+  setWashQueued(true);
   phys.closeAll();
   updateMachineButtons();
   setStatus('Closing the machine…');
-  $('wash').textContent = '… closing (click to cancel)';
 };
 
 // ---- loop ----
@@ -667,15 +696,21 @@ function frame(now: number) {
       if (p) d.pose = p;
     }
     syncMeshes();
+
     // A finished wash stays on screen until the load itself is changed: opening the door or sliding a rack
     // moves the dishes, but doesn't un-wash them.
-    if (!phys.settled && (result || batch) && !resultIsWash) markChanged();
-    if (needsEval && phys.settled) {
+    if ((result || batch) && !resultIsWash && loadMoved()) markChanged();
+
+    // Wait for the dishes to come to rest, but not forever: a dish pinched by the door can jitter indefinitely.
+    const waiting = (needsEval || washQueued) && !phys.machineMoving;
+    settleWait = waiting && !phys.settled ? settleWait + dt : 0;
+    const ready = phys.settled || settleWait > SETTLE_TIMEOUT;
+    if (needsEval && ready) {
       if (resultIsWash) needsEval = false;
       else if (phys.racksIn) runEval();
       else if (dishes.length) setStatus('Push the racks in to see the predicted result.');
     }
-    if (washQueued && phys.closed && phys.settled) beginWash();
+    if (washQueued && phys.closed && ready) beginWash();
   }
   machine.update({ door: phys.door.value, lower: phys.lower.value, upper: phys.upper.value });
   if (phys.machineMoving) updateMachineButtons();
